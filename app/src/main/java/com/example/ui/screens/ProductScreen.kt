@@ -183,12 +183,41 @@ fun ProductScreen(
                 )
             }
 
-            // Filter Kategori Horizontal Scrollable
+            // Filter Kategori & Status "Hanya Aktif" Horizontal Scrollable
             item {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    // Filter Status "Hanya Aktif" sebagai Chip interaktif yang rapi & jelas
+                    item {
+                        FilterChip(
+                            selected = onlyActiveFilter,
+                            onClick = { viewModel.setProductOnlyActiveFilter(!onlyActiveFilter) },
+                            label = {
+                                Text(
+                                    text = if (onlyActiveFilter) "Hanya Aktif" else "Semua Status",
+                                    fontWeight = if (onlyActiveFilter) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = if (onlyActiveFilter) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            } else null,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+
                     items(categories) { cat ->
                         val isSelected = (categoryFilter == null && cat == "Semua") || categoryFilter == cat
                         FilterChip(
@@ -198,18 +227,20 @@ fun ProductScreen(
                             },
                             label = { Text(cat, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         )
                     }
                 }
             }
 
-            // Baris Info & Toggle Filter "Hanya Aktif"
+            // Baris Info Ringkasan Jumlah Produk
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -220,24 +251,12 @@ fun ProductScreen(
                         fontWeight = FontWeight.Medium
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clickable { viewModel.setProductOnlyActiveFilter(!onlyActiveFilter) }
-                            .padding(vertical = 4.dp)
-                    ) {
+                    if (onlyActiveFilter || categoryFilter != null || searchQuery.isNotBlank()) {
                         Text(
-                            text = "Filter: Hanya Aktif",
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "Filter aktif",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Switch(
-                            checked = onlyActiveFilter,
-                            onCheckedChange = { viewModel.setProductOnlyActiveFilter(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.primary
-                            )
                         )
                     }
                 }
@@ -407,14 +426,14 @@ fun ProductItemCard(
                     Text(
                         text = "Laba / Item",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFFE65100),
+                        color = MaterialTheme.colorScheme.tertiary,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = formatRupiah(profit),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFFE65100)
+                        color = MaterialTheme.colorScheme.tertiary
                     )
                 }
 
@@ -706,7 +725,7 @@ fun ProductFormFullScreenDialog(
                             if (costPriceStr.isNotBlank() && defaultSellPriceStr.isNotBlank()) {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (estimatedProfit >= 0) Color(0xFFFFF8E1) else Color(0xFFFFEBEE),
+                                    color = if (estimatedProfit >= 0) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
@@ -719,13 +738,13 @@ fun ProductFormFullScreenDialog(
                                                 text = "Ringkasan Laba Kotor Per Item:",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (estimatedProfit >= 0) Color(0xFFBF360C) else MaterialTheme.colorScheme.error
+                                                color = if (estimatedProfit >= 0) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer
                                             )
                                             Text(
                                                 text = formatRupiah(estimatedProfit),
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.ExtraBold,
-                                                color = if (estimatedProfit >= 0) Color(0xFFE65100) else MaterialTheme.colorScheme.error
+                                                color = if (estimatedProfit >= 0) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer
                                             )
                                         }
                                         if (estimatedProfit < 0) {
@@ -733,7 +752,7 @@ fun ProductFormFullScreenDialog(
                                             Text(
                                                 text = "Perhatian: Harga jual lebih rendah dari harga modal!",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.error
+                                                color = MaterialTheme.colorScheme.onErrorContainer
                                             )
                                         }
                                     }

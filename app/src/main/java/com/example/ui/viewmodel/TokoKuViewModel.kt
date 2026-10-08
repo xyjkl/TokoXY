@@ -16,9 +16,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class AppNavTab(val label: String) {
     HOME("Beranda"),
@@ -53,6 +56,18 @@ class TokoKuViewModel(
         viewModelScope.launch {
             repository.checkAndSeedInitialData()
             refreshTodaySummary()
+        }
+        viewModelScope.launch {
+            repository.allCustomersWithNumbers.collect { customerList ->
+                val current = _selectedCustomer.value
+                if (current != null) {
+                    val updated = customerList.find { it.customer.id == current.customer.id }
+                    if (updated != null) {
+                        _selectedCustomer.value = updated
+                        syncCartWithUpdatedCustomer(updated)
+                    }
+                }
+            }
         }
     }
 
@@ -107,9 +122,21 @@ class TokoKuViewModel(
         _customerSearchQuery.value = query
     }
 
-    fun saveCustomer(customer: CustomerEntity, numbers: List<CustomerDestinationNumberEntity> = emptyList()) {
+    fun saveCustomer(
+        customer: CustomerEntity,
+        numbers: List<CustomerDestinationNumberEntity> = emptyList(),
+        onSuccess: ((Long) -> Unit)? = null
+    ) {
         viewModelScope.launch {
-            repository.saveCustomer(customer, numbers)
+            val id = repository.saveCustomer(customer, numbers)
+            onSuccess?.invoke(id)
+        }
+    }
+
+    fun selectCustomerById(customerId: Long) {
+        viewModelScope.launch {
+            val cust = repository.getCustomerById(customerId).filterNotNull().first()
+            selectCustomer(cust)
         }
     }
 
@@ -153,6 +180,13 @@ class TokoKuViewModel(
     private val _isSavingSale = MutableStateFlow(false)
     val isSavingSale: StateFlow<Boolean> = _isSavingSale.asStateFlow()
 
+    private val _saleErrorMessage = MutableStateFlow<String?>(null)
+    val saleErrorMessage: StateFlow<String?> = _saleErrorMessage.asStateFlow()
+
+    fun clearSaleErrorMessage() {
+        _saleErrorMessage.value = null
+    }
+
     private val _saleSuccessTransaction = MutableStateFlow<TransactionWithItems?>(null)
     val saleSuccessTransaction: StateFlow<TransactionWithItems?> = _saleSuccessTransaction.asStateFlow()
 
@@ -180,10 +214,12 @@ class TokoKuViewModel(
 
     /**
      * Menambahkan produk ke keranjang penjualan dengan aturan autofill:
-     * 1. Jika hanya ada satu nomor yang sesuai dari pelanggan -> isi otomatis.
-     * 2. Jika ada beberapa nomor dan salah satunya default -> gunakan default.
-     * 3. Jika ada beberapa nomor tanpa default -> pilih nomor pertama atau minta pilih.
-     * 4. Jika belum ada nomor yang sesuai -> tampilkan input manual.
+     * 1. Jenis data NONE -> tidak memerlukan nomor tujuan.
+     * 2. Tepat 1 nomor cocok -> isi otomatis nomor tersebut.
+     * 3. Beberapa nomor cocok dan ada yang ditandai Utama (isDefault) -> gunakan nomor utama.
+     * 4. Beberapa nomor cocok TANPA nomor utama -> jangan pilih otomatis secara sepihak,
+     *    biarkan selectedNumber = null agar pengguna wajib memilih nomor tujuan.
+     * 5. Belum ada nomor cocok -> sediakan input manual.
      */
     fun addProductToCart(product: ProductEntity) {
         val customer = _selectedCustomer.value
@@ -202,15 +238,25 @@ class TokoKuViewModel(
                     )
                 }
                 matchingNumbers.size > 1 -> {
-                    val defaultNum = matchingNumbers.find { it.isDefault } ?: matchingNumbers.first()
-                    CartItem(
-                        product = product,
-                        selectedNumber = defaultNum,
-                        isManualInput = false
-                    )
+                    val defaultNum = matchingNumbers.find { it.isDefault }
+                    if (defaultNum != null) {
+                        CartItem(
+                            product = product,
+                            selectedNumber = defaultNum,
+                            isManualInput = false
+                        )
+                    } else {
+                        // Beberapa nomor tanpa nomor utama -> biarkan belum terpilih, tampilkan pilihan
+                        CartItem(
+                            product = product,
+                            selectedNumber = null,
+                            isManualInput = false,
+                            manualNumberLabel = reqType.label
+                        )
+                    }
                 }
                 else -> {
-                    // Belum ada nomor yang sesuai untuk jenis data ini
+                    // Belum ada nomor yang sesuai untuk jenis data ini -> input manual
                     CartItem(
                         product = product,
                         selectedNumber = null,
@@ -249,13 +295,23 @@ class TokoKuViewModel(
                         )
                     }
                     matchingNumbers.size > 1 -> {
-                        val defaultNum = matchingNumbers.find { it.isDefault } ?: matchingNumbers.first()
-                        item.copy(
-                            selectedNumber = defaultNum,
-                            isManualInput = false,
-                            manualNumberValue = "",
-                            saveToCustomer = false
-                        )
+                        val defaultNum = matchingNumbers.find { it.isDefault }
+                        if (defaultNum != null) {
+                            item.copy(
+                                selectedNumber = defaultNum,
+                                isManualInput = false,
+                                manualNumberValue = "",
+                                saveToCustomer = false
+                            )
+                        } else {
+                            // Beberapa nomor tanpa nomor utama -> wajibkan pemilihan
+                            item.copy(
+                                selectedNumber = null,
+                                isManualInput = false,
+                                manualNumberValue = "",
+                                saveToCustomer = false
+                            )
+                        }
                     }
                     else -> {
                         // Tidak ada nomor yang cocok pada pelanggan baru
@@ -274,6 +330,56 @@ class TokoKuViewModel(
                     isManualInput = true,
                     manualNumberValue = ""
                 )
+            }
+        }
+    }
+
+    private fun syncCartWithUpdatedCustomer(customer: CustomerWithNumbers) {
+        _cartItems.value = _cartItems.value.map { item ->
+            val reqType = item.product.requiredCustomerDataType
+            if (reqType == CustomerDataType.NONE) {
+                item
+            } else if (item.selectedNumber != null) {
+                val updatedNum = customer.numbers.find { it.id == item.selectedNumber.id }
+                if (updatedNum != null) {
+                    item.copy(selectedNumber = updatedNum)
+                } else {
+                    val matching = customer.getNumbersForType(reqType)
+                    if (matching.size == 1) {
+                        item.copy(selectedNumber = matching.first(), isManualInput = false)
+                    } else if (matching.size > 1) {
+                        val def = matching.find { it.isDefault }
+                        item.copy(selectedNumber = def, isManualInput = false)
+                    } else {
+                        item.copy(selectedNumber = null, isManualInput = true, manualNumberLabel = reqType.label)
+                    }
+                }
+            } else if (item.isManualInput && item.manualNumberValue.isBlank()) {
+                val matching = customer.getNumbersForType(reqType)
+                if (matching.size == 1) {
+                    item.copy(
+                        selectedNumber = matching.first(),
+                        isManualInput = false,
+                        manualNumberValue = "",
+                        saveToCustomer = false
+                    )
+                } else if (matching.size > 1) {
+                    val def = matching.find { it.isDefault }
+                    if (def != null) {
+                        item.copy(
+                            selectedNumber = def,
+                            isManualInput = false,
+                            manualNumberValue = "",
+                            saveToCustomer = false
+                        )
+                    } else {
+                        item
+                    }
+                } else {
+                    item
+                }
+            } else {
+                item
             }
         }
     }
@@ -356,6 +462,7 @@ class TokoKuViewModel(
         if (invalidItem != null) return
 
         _isSavingSale.value = true
+        _saleErrorMessage.value = null
 
         viewModelScope.launch {
             try {
@@ -390,19 +497,19 @@ class TokoKuViewModel(
                     newNumbersToSave = newNumbersToSave
                 )
 
-                // Ambil snapshot transaksi yang baru disimpan untuk tampilan sukses "Tercatat"
-                val savedTx = repository.getTransactionById(txId)
-                savedTx.collect { txWithItems ->
-                    if (txWithItems != null) {
-                        _saleSuccessTransaction.value = txWithItems
-                        _cartItems.value = emptyList()
-                        _selectedCustomer.value = null
-                        _manualCustomerName.value = ""
-                        _saleNotes.value = ""
-                        refreshTodaySummary()
-                        onComplete(txId)
-                    }
-                }
+                // Baca hasil transaksi tepat satu kali
+                val txWithItems = repository.getTransactionById(txId).filterNotNull().first()
+                _saleSuccessTransaction.value = txWithItems
+                _cartItems.value = emptyList()
+                _selectedCustomer.value = null
+                _manualCustomerName.value = ""
+                _saleNotes.value = ""
+                refreshTodaySummary()
+                onComplete(txId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _saleErrorMessage.value = e.message ?: "Gagal menyimpan transaksi penjualan"
             } finally {
                 _isSavingSale.value = false
             }

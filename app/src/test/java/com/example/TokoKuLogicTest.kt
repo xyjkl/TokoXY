@@ -231,4 +231,70 @@ class TokoKuLogicTest {
         assertEquals("Rp 100.500", formatRupiah(100500L))
         assertEquals("Rp 0", formatRupiah(0L))
     }
+
+    @Test
+    fun `skenario 9 - pelanggan dengan beberapa nomor tanpa nomor default tidak memilih otomatis dan validitas false`() {
+        // Buat data pelanggan dengan 2 nomor HP tanpa flag isDefault
+        val custNoDefault = CustomerWithNumbers(
+            customer = CustomerEntity(id = 50, name = "Rudi"),
+            numbers = listOf(
+                CustomerDestinationNumberEntity(
+                    id = 501,
+                    customerId = 50,
+                    dataType = CustomerDataType.NOMOR_HP,
+                    label = "HP 1",
+                    numberValue = "0811111111",
+                    isDefault = false
+                ),
+                CustomerDestinationNumberEntity(
+                    id = 502,
+                    customerId = 50,
+                    dataType = CustomerDataType.NOMOR_HP,
+                    label = "HP 2",
+                    numberValue = "0822222222",
+                    isDefault = false
+                )
+            )
+        )
+
+        val numbers = custNoDefault.getNumbersForType(CustomerDataType.NOMOR_HP)
+        assertEquals(2, numbers.size)
+        val defaultNum = numbers.find { it.isDefault }
+        assertNull(defaultNum)
+
+        // Item keranjang awal sebelum pemilihan nomor
+        val unselectedCartItem = CartItem(
+            product = pulsaProduk,
+            selectedNumber = defaultNum, // null
+            isManualInput = false
+        )
+
+        assertFalse(unselectedCartItem.isValid)
+        assertEquals("", unselectedCartItem.effectiveNumberValue)
+
+        // Setelah pengguna memilih salah satu nomor secara sadar
+        val chosenCartItem = unselectedCartItem.copy(selectedNumber = numbers[1])
+        assertTrue(chosenCartItem.isValid)
+        assertEquals("0822222222", chosenCartItem.effectiveNumberValue)
+        assertEquals("HP 2", chosenCartItem.effectiveLabel)
+    }
+
+    @Test
+    fun `skenario 10 - produk tanpa nomor tujuan selalu valid tanpa nomor`() {
+        val nonNumberProduct = ProductEntity(
+            id = 99,
+            name = "Voucher Game 100",
+            category = "Game",
+            productType = ProductType.DIGITAL,
+            costPrice = 90000,
+            defaultSellPrice = 100000,
+            requiredCustomerDataType = CustomerDataType.NONE
+        )
+
+        val item = CartItem(product = nonNumberProduct)
+        assertTrue(item.isValid)
+        val entity = item.toSaleItemEntity(1)
+        assertNull(entity.destinationNumberSnapshot)
+        assertNull(entity.destinationLabelSnapshot)
+    }
 }

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -94,6 +95,8 @@ import com.example.ui.viewmodel.TokoKuViewModel
 fun SalesScreen(
     viewModel: TokoKuViewModel,
     onNavigateToHistory: () -> Unit,
+    printerViewModel: com.example.ui.viewmodel.PrinterViewModel? = null,
+    onNavigateToPrinter: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val selectedCustomer by viewModel.selectedCustomer.collectAsState()
@@ -101,6 +104,7 @@ fun SalesScreen(
     val cartItems by viewModel.cartItems.collectAsState()
     val saleNotes by viewModel.saleNotes.collectAsState()
     val isSaving by viewModel.isSavingSale.collectAsState()
+    val saleErrorMessage by viewModel.saleErrorMessage.collectAsState()
     val successTx by viewModel.saleSuccessTransaction.collectAsState()
 
     val allActiveProducts by viewModel.allActiveProducts.collectAsState()
@@ -116,6 +120,33 @@ fun SalesScreen(
     val hasInvalidItems = cartItems.any { !it.isValid }
     val canSave = cartItems.isNotEmpty() && !hasInvalidItems && !isSaving
 
+    // Dialog Error Simpan Transaksi
+    saleErrorMessage?.let { errorMsg ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearSaleErrorMessage() },
+            title = {
+                Text(
+                    text = "Gagal Menyimpan Transaksi",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error
+                )
+            },
+            text = {
+                Text(
+                    text = errorMsg,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.clearSaleErrorMessage() }
+                ) {
+                    Text("Mengerti")
+                }
+            }
+        )
+    }
+
     // Dialog Sukses Transaksi "Tercatat"
     successTx?.let { txWithItems ->
         SaleSuccessDialog(
@@ -125,7 +156,9 @@ fun SalesScreen(
             onViewHistory = {
                 viewModel.resetSaleSuccessState()
                 onNavigateToHistory()
-            }
+            },
+            printerViewModel = printerViewModel,
+            onNavigateToPrinter = onNavigateToPrinter
         )
     }
 
@@ -161,7 +194,9 @@ fun SalesScreen(
                         )
                     )
                 } else emptyList()
-                viewModel.saveCustomer(newCustomer, numbers)
+                viewModel.saveCustomer(newCustomer, numbers) { newId ->
+                    viewModel.selectCustomerById(newId)
+                }
                 showNewCustomerDialog = false
             },
             onDismiss = { showNewCustomerDialog = false }
@@ -292,7 +327,7 @@ fun SalesScreen(
                                             text = cust.customer.name.take(1).uppercase(),
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = MaterialTheme.colorScheme.onPrimary
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
@@ -306,13 +341,13 @@ fun SalesScreen(
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = Color(0xFFE8F5E9)
+                                                color = MaterialTheme.colorScheme.secondaryContainer
                                             ) {
                                                 Text(
                                                     text = "Pelanggan Terdaftar",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFF2E7D32),
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                 )
                                             }
@@ -527,13 +562,13 @@ fun SalesScreen(
                             Text(
                                 text = "Estimasi Laba Kotor",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFE65100),
+                                color = MaterialTheme.colorScheme.tertiary,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = formatRupiah(estimatedProfit),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFE65100),
+                                color = MaterialTheme.colorScheme.tertiary,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -564,20 +599,23 @@ fun SalesScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                                    .background(
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
                                     .padding(8.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Warning,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "Lengkapi nomor tujuan yang masih kosong sebelum menyimpan.",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
@@ -791,12 +829,26 @@ fun CartItemCard(
 
                 val availableNumbers = selectedCustomer?.getNumbersForType(reqType) ?: emptyList()
 
-                Text(
-                    text = "Nomor Tujuan (${reqType.label}) *",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (!item.isValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Nomor Tujuan (${reqType.label}) *",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (!item.isValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    )
+                    if (availableNumbers.isNotEmpty() && item.selectedNumber == null && !item.isManualInput) {
+                        Text(
+                            text = "Pilih nomor tujuan",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -1173,13 +1225,19 @@ fun QuickAddCustomerDialog(
         confirmButton = {
             Button(
                 onClick = { if (name.isNotBlank()) onSave(name, number, label, selectedType) },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank(),
+                modifier = Modifier.height(48.dp),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Simpan")
+                Text("Simpan & Pilih")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.height(48.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
                 Text("Batal")
             }
         }
@@ -1346,10 +1404,16 @@ fun SaleSuccessDialog(
     transactionWithItems: TransactionWithItems,
     onDismiss: () -> Unit,
     onNewSale: () -> Unit,
-    onViewHistory: () -> Unit
+    onViewHistory: () -> Unit,
+    printerViewModel: com.example.ui.viewmodel.PrinterViewModel? = null,
+    onNavigateToPrinter: () -> Unit = {}
 ) {
     val tx = transactionWithItems.transaction
     val items = transactionWithItems.items
+
+    val printerConfig by (printerViewModel?.printerConfig?.collectAsState() ?: remember { mutableStateOf(null) })
+    val isPrinting by (printerViewModel?.isPrinting?.collectAsState() ?: remember { mutableStateOf(false) })
+    val hasSelectedPrinter = !printerConfig?.selectedDeviceAddress.isNullOrBlank()
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1495,9 +1559,97 @@ fun SaleSuccessDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Tombol Aksi
+                // Section Cetak Struk (ESC/POS Thermal Bluetooth)
+                if (printerViewModel != null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Print,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = if (hasSelectedPrinter)
+                                            "Printer: ${printerConfig?.selectedDeviceName ?: "MP-58N"}"
+                                        else "Belum ada printer dipilih",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                if (!hasSelectedPrinter) {
+                                    TextButton(
+                                        onClick = {
+                                            onDismiss()
+                                            onNavigateToPrinter()
+                                        }
+                                    ) {
+                                        Text("Atur Printer", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = {
+                                    if (hasSelectedPrinter) {
+                                        printerViewModel.printTransactionReceipt(transactionWithItems)
+                                    } else {
+                                        onDismiss()
+                                        onNavigateToPrinter()
+                                    }
+                                },
+                                enabled = !isPrinting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("print_receipt_sale_dialog_button"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                if (isPrinting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Mengirim ke Printer...")
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Print,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(if (hasSelectedPrinter) "Cetak Struk (MP-58N)" else "Pilih Printer Dahulu")
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
+                // Tombol Aksi Transaksi Baru & Riwayat
                 Button(
                     onClick = onNewSale,
                     modifier = Modifier.fillMaxWidth(),

@@ -25,21 +25,27 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.PointOfSale
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -68,6 +75,8 @@ import java.util.Calendar
 fun HistoryScreen(
     viewModel: TokoKuViewModel,
     onNavigateToSales: () -> Unit,
+    printerViewModel: com.example.ui.viewmodel.PrinterViewModel? = null,
+    onNavigateToPrinter: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val allTransactions by viewModel.allTransactions.collectAsState()
@@ -125,7 +134,9 @@ fun HistoryScreen(
     selectedTransaction?.let { tx ->
         TransactionDetailDialog(
             transactionWithItems = tx,
-            onDismiss = { selectedTransaction = null }
+            onDismiss = { selectedTransaction = null },
+            printerViewModel = printerViewModel,
+            onNavigateToPrinter = onNavigateToPrinter
         )
     }
 
@@ -426,10 +437,16 @@ fun HistoryItemCard(
 @Composable
 fun TransactionDetailDialog(
     transactionWithItems: TransactionWithItems,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    printerViewModel: com.example.ui.viewmodel.PrinterViewModel? = null,
+    onNavigateToPrinter: () -> Unit = {}
 ) {
     val tx = transactionWithItems.transaction
     val items = transactionWithItems.items
+
+    val printerConfig by (printerViewModel?.printerConfig?.collectAsState() ?: remember { mutableStateOf(null) })
+    val isPrinting by (printerViewModel?.isPrinting?.collectAsState() ?: remember { mutableStateOf(false) })
+    val hasSelectedPrinter = !printerConfig?.selectedDeviceAddress.isNullOrBlank()
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -437,7 +454,7 @@ fun TransactionDetailDialog(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 620.dp)
+                .heightIn(max = 660.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(
@@ -639,6 +656,93 @@ fun TransactionDetailDialog(
                         color = Color(0xFFE65100),
                         fontWeight = FontWeight.ExtraBold
                     )
+                }
+
+                // Section Cetak Ulang Struk
+                if (printerViewModel != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Print,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = if (hasSelectedPrinter)
+                                            "Printer: ${printerConfig?.selectedDeviceName ?: "MP-58N"}"
+                                        else "Belum ada printer dipilih",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                if (!hasSelectedPrinter) {
+                                    TextButton(
+                                        onClick = {
+                                            onDismiss()
+                                            onNavigateToPrinter()
+                                        }
+                                    ) {
+                                        Text("Atur Printer", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = {
+                                    if (hasSelectedPrinter) {
+                                        printerViewModel.printTransactionReceipt(transactionWithItems)
+                                    } else {
+                                        onDismiss()
+                                        onNavigateToPrinter()
+                                    }
+                                },
+                                enabled = !isPrinting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("reprint_receipt_history_button"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                if (isPrinting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Mengirim ke Printer...")
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Print,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(if (hasSelectedPrinter) "Cetak Ulang Struk" else "Pilih Printer Dahulu")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

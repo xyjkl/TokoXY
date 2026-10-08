@@ -40,7 +40,6 @@ abstract class TokoKuDatabase : RoomDatabase() {
                     TokoKuDatabase::class.java,
                     "tokoku_database"
                 )
-                    .fallbackToDestructiveMigration(false) // Safe for future explicit migrations
                     .build()
                 INSTANCE = instance
                 instance
