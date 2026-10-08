@@ -1,0 +1,6 @@
+{
+  "name": "TokoKu",
+  "description": "Aplikasi manajemen produk digital, pelanggan, dan pencatatan penjualan toko pulsa & PPOB offline-first dengan autofill cerdas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
